@@ -5,3 +5,14 @@ zig-out
 /vendor/libiconv/
 lightpanda.id
 /v8/
+
+# Docker and deployment
+.env
+*.png
+*.jpg
+*.jpeg
+
+# Examples
+examples/node_modules/
+examples/package-lock.json
+examples/screenshot*.png
