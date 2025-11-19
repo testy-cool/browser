@@ -2,6 +2,12 @@
 
 Deploy Lightpanda as a headless browser server for web scraping with anti-bot capabilities.
 
+## 🚀 Cloud Platform Tutorials
+
+**New to deployment?** Check out our step-by-step tutorials:
+
+- **[Deploy on Hetzner Cloud](HETZNER_TUTORIAL.md)** - Complete tutorial with server setup, Docker installation, security hardening, and cost optimization
+
 ## Quick Start
 
 ### 1. Docker Deployment

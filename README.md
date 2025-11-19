@@ -130,6 +130,14 @@ await context.close();
 await browser.disconnect();
 ```
 
+## Deployment Guides
+
+Ready to deploy Lightpanda as a production scraping server? Check out our guides:
+
+- **[Hetzner Cloud Tutorial](HETZNER_TUTORIAL.md)** - Step-by-step guide for deploying on Hetzner with Docker, security setup, and cost optimization
+- **[General Deployment Guide](DEPLOYMENT.md)** - Docker Compose setup, Kubernetes, security hardening, and scaling strategies
+- **[Code Examples](examples/)** - Working Puppeteer and Playwright examples with anti-bot features
+
 ### Telemetry
 By default, Lightpanda collects and sends usage telemetry. This can be disabled by setting an environment variable `LIGHTPANDA_DISABLE_TELEMETRY=true`. You can read Lightpanda's privacy policy at: [https://lightpanda.io/privacy-policy](https://lightpanda.io/privacy-policy).
 
