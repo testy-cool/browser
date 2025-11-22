@@ -126,6 +126,12 @@ fn run(alloc: Allocator) !void {
         .http_max_host_open = args.httpMaxHostOpen(),
         .http_max_concurrent = args.httpMaxConcurrent(),
         .user_agent = user_agent,
+        // Anti-detection options
+        .tls_version = args.tlsVersion(),
+        .http_version = args.httpVersion(),
+        .cipher_list = args.cipherList(),
+        .enable_alpn = args.enableAlpn(),
+        .browser_profile = args.browserProfile(),
     });
 
     const app = _app.?;
@@ -293,6 +299,41 @@ const Command = struct {
         };
     }
 
+    fn tlsVersion(self: *const Command) Http.TlsVersion {
+        return switch (self.mode) {
+            inline .serve, .fetch => |opts| opts.common.tls_version,
+            else => unreachable,
+        };
+    }
+
+    fn httpVersion(self: *const Command) Http.HttpVersion {
+        return switch (self.mode) {
+            inline .serve, .fetch => |opts| opts.common.http_version,
+            else => unreachable,
+        };
+    }
+
+    fn cipherList(self: *const Command) ?[:0]const u8 {
+        return switch (self.mode) {
+            inline .serve, .fetch => |opts| opts.common.cipher_list,
+            else => unreachable,
+        };
+    }
+
+    fn enableAlpn(self: *const Command) bool {
+        return switch (self.mode) {
+            inline .serve, .fetch => |opts| opts.common.enable_alpn,
+            else => unreachable,
+        };
+    }
+
+    fn browserProfile(self: *const Command) Http.BrowserProfile {
+        return switch (self.mode) {
+            inline .serve, .fetch => |opts| opts.common.browser_profile,
+            else => unreachable,
+        };
+    }
+
     const Mode = union(App.RunMode) {
         help: bool, // false when being printed because of an error
         fetch: Fetch,
@@ -327,6 +368,12 @@ const Command = struct {
         log_format: ?log.Format = null,
         log_filter_scopes: ?[]log.Scope = null,
         user_agent_suffix: ?[]const u8 = null,
+        // Anti-detection options
+        tls_version: Http.TlsVersion = .default,
+        http_version: Http.HttpVersion = .default,
+        cipher_list: ?[:0]const u8 = null,
+        enable_alpn: bool = true,
+        browser_profile: Http.BrowserProfile = .none,
     };
 
     fn printUsageAndExit(self: *const Command, success: bool) void {
@@ -379,6 +426,26 @@ const Command = struct {
             \\
             \\--user_agent_suffix
             \\                Suffix to append to the Lightpanda/X.Y User-Agent
+            \\
+            \\Anti-Detection Options:
+            \\
+            \\--browser_profile
+            \\                Impersonate a browser (chrome, firefox, safari) with realistic
+            \\                TLS and HTTP fingerprints to avoid detection.
+            \\                Defaults to none.
+            \\
+            \\--tls_version   Force a specific TLS version (tls_1_2, tls_1_3, tls_1_2_or_newer).
+            \\                Overrides browser profile if set. Defaults to default.
+            \\
+            \\--http_version  Force a specific HTTP version (http_1_0, http_1_1, http_2,
+            \\                http_2_tls, http_2_prior_knowledge).
+            \\                Overrides browser profile if set. Defaults to default.
+            \\
+            \\--cipher_list   Custom TLS cipher suite list (OpenSSL format).
+            \\                Overrides browser profile if set.
+            \\
+            \\--disable_alpn  Disable ALPN (Application-Layer Protocol Negotiation).
+            \\                Defaults to false (ALPN enabled).
             \\
         ;
 
@@ -807,6 +874,60 @@ fn parseCommonArg(
             }
         }
         common.user_agent_suffix = try allocator.dupe(u8, str);
+        return true;
+    }
+
+    // Anti-detection options
+    if (std.mem.eql(u8, "--browser_profile", opt)) {
+        const str = args.next() orelse {
+            log.fatal(.app, "missing argument value", .{ .arg = "--browser_profile" });
+            return error.InvalidArgument;
+        };
+        const Http = @import("http/Http.zig");
+        common.browser_profile = std.meta.stringToEnum(Http.BrowserProfile, str) orelse {
+            log.fatal(.app, "invalid option choice", .{ .arg = "--browser_profile", .value = str, .help = "must be one of: none, chrome, firefox, safari" });
+            return error.InvalidArgument;
+        };
+        return true;
+    }
+
+    if (std.mem.eql(u8, "--tls_version", opt)) {
+        const str = args.next() orelse {
+            log.fatal(.app, "missing argument value", .{ .arg = "--tls_version" });
+            return error.InvalidArgument;
+        };
+        const Http = @import("http/Http.zig");
+        common.tls_version = std.meta.stringToEnum(Http.TlsVersion, str) orelse {
+            log.fatal(.app, "invalid option choice", .{ .arg = "--tls_version", .value = str, .help = "must be one of: default, tls_1_2, tls_1_3, tls_1_2_or_newer" });
+            return error.InvalidArgument;
+        };
+        return true;
+    }
+
+    if (std.mem.eql(u8, "--http_version", opt)) {
+        const str = args.next() orelse {
+            log.fatal(.app, "missing argument value", .{ .arg = "--http_version" });
+            return error.InvalidArgument;
+        };
+        const Http = @import("http/Http.zig");
+        common.http_version = std.meta.stringToEnum(Http.HttpVersion, str) orelse {
+            log.fatal(.app, "invalid option choice", .{ .arg = "--http_version", .value = str, .help = "must be one of: default, http_1_0, http_1_1, http_2, http_2_tls, http_2_prior_knowledge" });
+            return error.InvalidArgument;
+        };
+        return true;
+    }
+
+    if (std.mem.eql(u8, "--cipher_list", opt)) {
+        const str = args.next() orelse {
+            log.fatal(.app, "missing argument value", .{ .arg = "--cipher_list" });
+            return error.InvalidArgument;
+        };
+        common.cipher_list = try allocator.dupeZ(u8, str);
+        return true;
+    }
+
+    if (std.mem.eql(u8, "--disable_alpn", opt)) {
+        common.enable_alpn = false;
         return true;
     }
 

@@ -165,6 +165,47 @@ pub const Connection = struct {
         // empty string means: use whatever's available
         try errorCheck(c.curl_easy_setopt(easy, c.CURLOPT_ACCEPT_ENCODING, ""));
 
+        // Anti-detection: Apply browser profile settings or explicit overrides
+        const effective_tls = if (opts.tls_version == .default and opts.browser_profile != .none)
+            opts.browser_profile.getTlsVersion()
+        else
+            opts.tls_version;
+
+        const effective_http = if (opts.http_version == .default and opts.browser_profile != .none)
+            opts.browser_profile.getHttpVersion()
+        else
+            opts.http_version;
+
+        const effective_cipher = opts.cipher_list orelse opts.browser_profile.getCipherList();
+
+        // Anti-detection: TLS version control
+        switch (effective_tls) {
+            .default => {},
+            .tls_1_2 => try errorCheck(c.curl_easy_setopt(easy, c.CURLOPT_SSLVERSION, c.CURL_SSLVERSION_TLSv1_2)),
+            .tls_1_3 => try errorCheck(c.curl_easy_setopt(easy, c.CURLOPT_SSLVERSION, c.CURL_SSLVERSION_TLSv1_3)),
+            .tls_1_2_or_newer => try errorCheck(c.curl_easy_setopt(easy, c.CURLOPT_SSLVERSION, c.CURL_SSLVERSION_TLSv1_2 | c.CURL_SSLVERSION_MAX_DEFAULT)),
+        }
+
+        // Anti-detection: HTTP version control
+        switch (effective_http) {
+            .default => {},
+            .http_1_0 => try errorCheck(c.curl_easy_setopt(easy, c.CURLOPT_HTTP_VERSION, c.CURL_HTTP_VERSION_1_0)),
+            .http_1_1 => try errorCheck(c.curl_easy_setopt(easy, c.CURLOPT_HTTP_VERSION, c.CURL_HTTP_VERSION_1_1)),
+            .http_2 => try errorCheck(c.curl_easy_setopt(easy, c.CURLOPT_HTTP_VERSION, c.CURL_HTTP_VERSION_2)),
+            .http_2_tls => try errorCheck(c.curl_easy_setopt(easy, c.CURLOPT_HTTP_VERSION, c.CURL_HTTP_VERSION_2TLS)),
+            .http_2_prior_knowledge => try errorCheck(c.curl_easy_setopt(easy, c.CURLOPT_HTTP_VERSION, c.CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE)),
+        }
+
+        // Anti-detection: Cipher suite configuration
+        if (effective_cipher) |ciphers| {
+            try errorCheck(c.curl_easy_setopt(easy, c.CURLOPT_SSL_CIPHER_LIST, ciphers.ptr));
+        }
+
+        // Anti-detection: ALPN control
+        if (!opts.enable_alpn) {
+            try errorCheck(c.curl_easy_setopt(easy, c.CURLOPT_SSL_ENABLE_ALPN, @as(c_long, 0)));
+        }
+
         // debug
         if (comptime Http.ENABLE_DEBUG) {
             try errorCheck(c.curl_easy_setopt(easy, c.CURLOPT_VERBOSE, @as(c_long, 1)));
@@ -341,6 +382,62 @@ pub fn errorMCheck(code: c.CURLMcode) errors.Multi!void {
     return errors.fromMCode(code);
 }
 
+pub const TlsVersion = enum {
+    default,
+    tls_1_2,
+    tls_1_3,
+    tls_1_2_or_newer,
+};
+
+pub const HttpVersion = enum {
+    default,
+    http_1_0,
+    http_1_1,
+    http_2,
+    http_2_tls,
+    http_2_prior_knowledge,
+};
+
+pub const BrowserProfile = enum {
+    none,
+    chrome,
+    firefox,
+    safari,
+
+    pub fn getCipherList(self: BrowserProfile) ?[:0]const u8 {
+        return switch (self) {
+            .none => null,
+            // Chrome/Chromium cipher suites (modern Chrome on Linux/Windows)
+            .chrome => "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA:AES256-SHA",
+            // Firefox cipher suites (modern Firefox)
+            .firefox => "TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_256_GCM_SHA384:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA:AES256-SHA",
+            // Safari cipher suites (macOS/iOS)
+            .safari => "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-SHA384:ECDHE-ECDSA-AES128-SHA256:ECDHE-ECDSA-AES256-SHA:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA:ECDHE-RSA-AES128-SHA",
+        };
+    }
+
+    pub fn getTlsVersion(self: BrowserProfile) TlsVersion {
+        return switch (self) {
+            .none => .default,
+            .chrome, .firefox, .safari => .tls_1_2_or_newer,
+        };
+    }
+
+    pub fn getHttpVersion(self: BrowserProfile) HttpVersion {
+        return switch (self) {
+            .none => .default,
+            .chrome, .firefox, .safari => .http_2,
+        };
+    }
+
+    pub fn getAlpnEnabled(self: BrowserProfile) bool {
+        return switch (self) {
+            .none => true,
+            .chrome, .firefox, .safari => true,
+        };
+    }
+};
+
 pub const Opts = struct {
     timeout_ms: u31,
     max_host_open: u8,
@@ -351,6 +448,12 @@ pub const Opts = struct {
     http_proxy: ?[:0]const u8 = null,
     proxy_bearer_token: ?[:0]const u8 = null,
     user_agent: [:0]const u8,
+    // Anti-detection options
+    tls_version: TlsVersion = .default,
+    http_version: HttpVersion = .default,
+    cipher_list: ?[:0]const u8 = null,
+    enable_alpn: bool = true,
+    browser_profile: BrowserProfile = .none,
 };
 
 pub const Method = enum(u8) {

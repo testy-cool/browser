@@ -37,6 +37,12 @@ pub const App = struct {
         http_max_host_open: ?u8 = null,
         http_max_concurrent: ?u8 = null,
         user_agent: [:0]const u8,
+        // Anti-detection options
+        tls_version: Http.TlsVersion = .default,
+        http_version: Http.HttpVersion = .default,
+        cipher_list: ?[:0]const u8 = null,
+        enable_alpn: bool = true,
+        browser_profile: Http.BrowserProfile = .none,
     };
 
     pub fn init(allocator: Allocator, config: Config) !*App {
@@ -55,6 +61,12 @@ pub const App = struct {
             .tls_verify_host = config.tls_verify_host,
             .proxy_bearer_token = config.proxy_bearer_token,
             .user_agent = config.user_agent,
+            // Anti-detection options
+            .tls_version = config.tls_version,
+            .http_version = config.http_version,
+            .cipher_list = config.cipher_list,
+            .enable_alpn = config.enable_alpn,
+            .browser_profile = config.browser_profile,
         });
         errdefer http.deinit();
 
